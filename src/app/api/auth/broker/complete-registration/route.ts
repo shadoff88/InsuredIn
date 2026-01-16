@@ -15,11 +15,13 @@ export async function POST(request: NextRequest) {
 
     // Get the current user from the session
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+    console.log("Complete registration - user check:", user?.id, user?.email, userError?.message);
 
     if (!user) {
       return NextResponse.json(
-        { error: "Not authenticated" },
+        { error: "Not authenticated - please sign in again" },
         { status: 401 }
       );
     }
@@ -30,15 +32,20 @@ export async function POST(request: NextRequest) {
     // Check if user already has a broker account
     const { data: existingBrokerUser } = await adminClient
       .from("broker_users")
-      .select("id")
+      .select("id, broker_id")
       .eq("user_id", user.id)
       .single();
 
     if (existingBrokerUser) {
-      return NextResponse.json(
-        { error: "You already have a broker account" },
-        { status: 400 }
-      );
+      console.log("User already has broker account:", existingBrokerUser);
+      // User already registered - redirect them to dashboard instead of error
+      return NextResponse.json({
+        success: true,
+        alreadyRegistered: true,
+        broker: {
+          id: existingBrokerUser.broker_id,
+        },
+      });
     }
 
     // Create broker record

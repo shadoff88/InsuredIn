@@ -4,14 +4,22 @@ import { brokerRegisterSchema } from "@/lib/validations/auth";
 import { ZodError } from "zod";
 
 export async function POST(request: NextRequest) {
+  // Log env vars (first few chars only for security)
+  const secretKey = process.env.SUPABASE_SECRET_API;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  console.log("ENV CHECK - SUPABASE_SECRET_API exists:", !!secretKey, secretKey?.substring(0, 15));
+  console.log("ENV CHECK - SUPABASE_SERVICE_ROLE_KEY exists:", !!serviceKey, serviceKey?.substring(0, 15));
+
   try {
     const body = await request.json();
     const validated = brokerRegisterSchema.parse(body);
+    console.log("Step 1: Validation passed for:", validated.email);
 
     // Use admin client to bypass RLS for registration
     let supabase;
     try {
       supabase = createAdminClient();
+      console.log("Step 2: Admin client created successfully");
     } catch (adminError) {
       console.error("Failed to create admin client:", adminError);
       return NextResponse.json(
@@ -21,27 +29,32 @@ export async function POST(request: NextRequest) {
     }
 
     // Create auth user
+    console.log("Step 3: Creating auth user...");
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
       email: validated.email,
       password: validated.password,
-      email_confirm: true, // Auto-confirm for now
+      email_confirm: true,
     });
 
     if (authError) {
+      console.error("Auth user creation failed:", authError);
       return NextResponse.json(
-        { error: authError.message },
+        { error: `Auth error: ${authError.message}` },
         { status: 400 }
       );
     }
 
     if (!authData.user) {
+      console.error("No user returned from createUser");
       return NextResponse.json(
-        { error: "Failed to create user" },
+        { error: "Failed to create user - no user returned" },
         { status: 500 }
       );
     }
+    console.log("Step 4: Auth user created:", authData.user.id);
 
-    // Create broker record (admin client bypasses RLS)
+    // Create broker record
+    console.log("Step 5: Creating broker record...");
     const { data: broker, error: brokerError } = await supabase
       .from("brokers")
       .insert({
@@ -52,18 +65,17 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (brokerError) {
-      // Clean up auth user if broker creation fails
-      console.error("Broker insert error:", brokerError);
-      console.error("Error code:", brokerError.code);
-      console.error("Error details:", brokerError.details);
+      console.error("Broker insert error:", JSON.stringify(brokerError));
       await supabase.auth.admin.deleteUser(authData.user.id);
       return NextResponse.json(
-        { error: `Broker creation failed: ${brokerError.message}` },
+        { error: `Broker creation failed: ${brokerError.message} (code: ${brokerError.code})` },
         { status: 500 }
       );
     }
+    console.log("Step 6: Broker created:", broker.id);
 
     // Create broker_user record
+    console.log("Step 7: Creating broker_user record...");
     const { error: brokerUserError } = await supabase
       .from("broker_users")
       .insert({
@@ -75,19 +87,21 @@ export async function POST(request: NextRequest) {
       });
 
     if (brokerUserError) {
-      // Clean up on failure
+      console.error("Broker user insert error:", JSON.stringify(brokerUserError));
       await supabase.from("brokers").delete().eq("id", broker.id);
       await supabase.auth.admin.deleteUser(authData.user.id);
       return NextResponse.json(
-        { error: brokerUserError.message },
+        { error: `Broker user creation failed: ${brokerUserError.message}` },
         { status: 500 }
       );
     }
+    console.log("Step 8: Broker user created");
 
     // Create default branding
     await supabase.from("broker_branding").insert({
       broker_id: broker.id,
     });
+    console.log("Step 9: Registration complete!");
 
     return NextResponse.json({
       success: true,
@@ -107,9 +121,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    console.error("Broker registration error:", error);
+    console.error("Broker registration unexpected error:", error);
     return NextResponse.json(
-      { error: "An unexpected error occurred" },
+      { error: `Unexpected error: ${error instanceof Error ? error.message : String(error)}` },
       { status: 500 }
     );
   }

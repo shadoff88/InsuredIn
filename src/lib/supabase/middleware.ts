@@ -32,6 +32,49 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
+  // Handle OAuth code exchange
+  const code = request.nextUrl.searchParams.get("code");
+  if (code) {
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (!error) {
+      // Successfully exchanged code, redirect to dashboard
+      const url = request.nextUrl.clone();
+      url.searchParams.delete("code");
+
+      // Check if user is a broker or client and redirect accordingly
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        // Check broker_users first
+        const { data: brokerUser } = await supabase
+          .from("broker_users")
+          .select("id")
+          .eq("user_id", user.id)
+          .single();
+
+        if (brokerUser) {
+          url.pathname = "/broker/dashboard";
+          return NextResponse.redirect(url);
+        }
+
+        // Check client_users
+        const { data: clientUser } = await supabase
+          .from("client_users")
+          .select("id")
+          .eq("user_id", user.id)
+          .single();
+
+        if (clientUser) {
+          url.pathname = "/client/dashboard";
+          return NextResponse.redirect(url);
+        }
+
+        // New Google user, needs to complete registration
+        url.pathname = "/broker/complete-registration";
+        return NextResponse.redirect(url);
+      }
+    }
+  }
+
   // Get user and refresh session
   const {
     data: { user },
@@ -41,6 +84,9 @@ export async function updateSession(request: NextRequest) {
   const isAuthRoute =
     request.nextUrl.pathname.startsWith("/broker/login") ||
     request.nextUrl.pathname.startsWith("/broker/register") ||
+    request.nextUrl.pathname.startsWith("/broker/forgot-password") ||
+    request.nextUrl.pathname.startsWith("/broker/reset-password") ||
+    request.nextUrl.pathname.startsWith("/broker/complete-registration") ||
     request.nextUrl.pathname.startsWith("/client/login") ||
     request.nextUrl.pathname.startsWith("/client/register") ||
     request.nextUrl.pathname.startsWith("/invite");
@@ -62,8 +108,8 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
-  // If user is logged in and trying to access auth routes, redirect to dashboard
-  if (user && isAuthRoute) {
+  // If user is logged in and trying to access auth routes (except complete-registration), redirect to dashboard
+  if (user && isAuthRoute && !request.nextUrl.pathname.startsWith("/broker/complete-registration")) {
     // Check user type and redirect accordingly
     const url = request.nextUrl.clone();
     if (request.nextUrl.pathname.startsWith("/broker")) {

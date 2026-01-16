@@ -12,8 +12,8 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
-     * - api (API routes)
+     * Note: Excludes API routes except we need to process OAuth callbacks at root
      */
-    "/((?!_next/static|_next/image|favicon.ico|api|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api(?!/auth)|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

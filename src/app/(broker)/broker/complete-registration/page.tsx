@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { createBrowserClient } from "@supabase/ssr";
+import { createClient } from "@/lib/supabase/client";
 
 const completeRegistrationSchema = z.object({
   companyName: z.string().min(2, "Company name must be at least 2 characters"),
@@ -24,9 +24,7 @@ export default function CompleteRegistrationPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_API!;
+  const [isChecking, setIsChecking] = useState(true);
 
   const {
     register,
@@ -38,7 +36,7 @@ export default function CompleteRegistrationPage() {
   });
 
   useEffect(() => {
-    const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey);
+    const supabase = createClient();
 
     const checkUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -57,20 +55,11 @@ export default function CompleteRegistrationPage() {
         setValue("fullName", name);
       }
 
-      // Check if user already has a broker account - if so, redirect to dashboard
-      const { data: brokerUser } = await supabase
-        .from("broker_users")
-        .select("id")
-        .eq("user_id", user.id)
-        .single();
-
-      if (brokerUser) {
-        router.push("/broker/dashboard");
-      }
+      setIsChecking(false);
     };
 
     checkUser();
-  }, [router, setValue, supabaseUrl, supabaseAnonKey]);
+  }, [router, setValue]);
 
   const onSubmit = async (data: CompleteRegistrationInput) => {
     setIsLoading(true);
@@ -101,6 +90,14 @@ export default function CompleteRegistrationPage() {
       setIsLoading(false);
     }
   };
+
+  if (isChecking) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <p className="text-gray-500">Loading...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">

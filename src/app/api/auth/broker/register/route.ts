@@ -9,7 +9,16 @@ export async function POST(request: NextRequest) {
     const validated = brokerRegisterSchema.parse(body);
 
     // Use admin client to bypass RLS for registration
-    const supabase = createAdminClient();
+    let supabase;
+    try {
+      supabase = createAdminClient();
+    } catch (adminError) {
+      console.error("Failed to create admin client:", adminError);
+      return NextResponse.json(
+        { error: "Server configuration error - admin client" },
+        { status: 500 }
+      );
+    }
 
     // Create auth user
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
@@ -44,9 +53,12 @@ export async function POST(request: NextRequest) {
 
     if (brokerError) {
       // Clean up auth user if broker creation fails
+      console.error("Broker insert error:", brokerError);
+      console.error("Error code:", brokerError.code);
+      console.error("Error details:", brokerError.details);
       await supabase.auth.admin.deleteUser(authData.user.id);
       return NextResponse.json(
-        { error: brokerError.message },
+        { error: `Broker creation failed: ${brokerError.message}` },
         { status: 500 }
       );
     }

@@ -9,8 +9,13 @@ export function createAdminClient() {
   const serviceRoleKey = process.env.SUPABASE_SECRET_API || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!serviceRoleKey) {
+    console.error("Admin client: No service role key found. Checked SUPABASE_SECRET_API and SUPABASE_SERVICE_ROLE_KEY");
     throw new Error("SUPABASE_SECRET_API or SUPABASE_SERVICE_ROLE_KEY is not configured");
   }
+
+  // Log which key type is being used (first 10 chars only for security)
+  const keyPrefix = serviceRoleKey.substring(0, 10);
+  console.log(`Admin client: Using key starting with "${keyPrefix}..."`);
 
   return createClient(supabaseUrl, serviceRoleKey, {
     auth: {

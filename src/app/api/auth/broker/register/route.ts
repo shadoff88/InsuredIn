@@ -67,8 +67,17 @@ export async function POST(request: NextRequest) {
     if (brokerError) {
       console.error("Broker insert error:", JSON.stringify(brokerError));
       await supabase.auth.admin.deleteUser(authData.user.id);
+
+      // Include debug info in error response
+      const keyUsed = process.env.SUPABASE_SECRET_API ? "SUPABASE_SECRET_API" :
+                      process.env.SUPABASE_SERVICE_ROLE_KEY ? "SUPABASE_SERVICE_ROLE_KEY" : "NONE";
+      const keyPrefix = (process.env.SUPABASE_SECRET_API || process.env.SUPABASE_SERVICE_ROLE_KEY || "").substring(0, 20);
+
       return NextResponse.json(
-        { error: `Broker creation failed: ${brokerError.message} (code: ${brokerError.code})` },
+        {
+          error: `Broker creation failed: ${brokerError.message} (code: ${brokerError.code})`,
+          debug: { keyUsed, keyPrefix: keyPrefix + "..." }
+        },
         { status: 500 }
       );
     }

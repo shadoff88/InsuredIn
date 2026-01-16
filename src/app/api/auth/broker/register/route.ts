@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { brokerRegisterSchema } from "@/lib/validations/auth";
 import { ZodError } from "zod";
 
@@ -8,12 +8,14 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const validated = brokerRegisterSchema.parse(body);
 
-    const supabase = await createClient();
+    // Use admin client to bypass RLS for registration
+    const supabase = createAdminClient();
 
     // Create auth user
-    const { data: authData, error: authError } = await supabase.auth.signUp({
+    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
       email: validated.email,
       password: validated.password,
+      email_confirm: true, // Auto-confirm for now
     });
 
     if (authError) {
@@ -30,7 +32,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create broker record
+    // Create broker record (admin client bypasses RLS)
     const { data: broker, error: brokerError } = await supabase
       .from("brokers")
       .insert({
@@ -41,6 +43,8 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (brokerError) {
+      // Clean up auth user if broker creation fails
+      await supabase.auth.admin.deleteUser(authData.user.id);
       return NextResponse.json(
         { error: brokerError.message },
         { status: 500 }
@@ -59,6 +63,9 @@ export async function POST(request: NextRequest) {
       });
 
     if (brokerUserError) {
+      // Clean up on failure
+      await supabase.from("brokers").delete().eq("id", broker.id);
+      await supabase.auth.admin.deleteUser(authData.user.id);
       return NextResponse.json(
         { error: brokerUserError.message },
         { status: 500 }

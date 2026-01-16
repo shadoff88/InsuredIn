@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { clientRegisterSchema } from "@/lib/validations/auth";
 import { ZodError } from "zod";
 
@@ -8,7 +8,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const validated = clientRegisterSchema.parse(body);
 
-    const supabase = await createClient();
+    // Use admin client to bypass RLS for registration
+    const supabase = createAdminClient();
 
     // Validate invite code
     const { data: invite, error: inviteError } = await supabase
@@ -26,10 +27,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const clientData = invite.clients as any;
+
     // Create auth user with client's email
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: invite.clients.email,
+    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      email: clientData.email,
       password: validated.password,
+      email_confirm: true,
     });
 
     if (authError) {
@@ -56,6 +61,7 @@ export async function POST(request: NextRequest) {
       });
 
     if (clientUserError) {
+      await supabase.auth.admin.deleteUser(authData.user.id);
       return NextResponse.json(
         { error: clientUserError.message },
         { status: 500 }
@@ -86,7 +92,7 @@ export async function POST(request: NextRequest) {
       },
       client: {
         id: invite.client_id,
-        fullName: invite.clients.full_name,
+        fullName: clientData.full_name,
       },
     });
   } catch (error) {

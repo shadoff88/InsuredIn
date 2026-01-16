@@ -53,24 +53,28 @@ export async function updateSession(request: NextRequest) {
 
         if (brokerUser) {
           url.pathname = "/broker/dashboard";
-          return NextResponse.redirect(url);
+        } else {
+          // Check client_users
+          const { data: clientUser } = await supabase
+            .from("client_users")
+            .select("id")
+            .eq("user_id", user.id)
+            .single();
+
+          if (clientUser) {
+            url.pathname = "/client/dashboard";
+          } else {
+            // New Google user, needs to complete registration
+            url.pathname = "/broker/complete-registration";
+          }
         }
 
-        // Check client_users
-        const { data: clientUser } = await supabase
-          .from("client_users")
-          .select("id")
-          .eq("user_id", user.id)
-          .single();
-
-        if (clientUser) {
-          url.pathname = "/client/dashboard";
-          return NextResponse.redirect(url);
-        }
-
-        // New Google user, needs to complete registration
-        url.pathname = "/broker/complete-registration";
-        return NextResponse.redirect(url);
+        // Create redirect response and copy cookies from supabaseResponse
+        const redirectResponse = NextResponse.redirect(url);
+        supabaseResponse.cookies.getAll().forEach((cookie) => {
+          redirectResponse.cookies.set(cookie.name, cookie.value, cookie);
+        });
+        return redirectResponse;
       }
     }
   }

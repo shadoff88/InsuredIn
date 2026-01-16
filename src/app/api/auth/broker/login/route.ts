@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { loginSchema } from "@/lib/validations/auth";
 import { ZodError } from "zod";
 
@@ -23,8 +24,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify user is a broker user
-    const { data: brokerUser, error: brokerError } = await supabase
+    // Use admin client to verify user is a broker (bypasses RLS)
+    const adminClient = createAdminClient();
+    const { data: brokerUser, error: brokerError } = await adminClient
       .from("broker_users")
       .select("*, brokers(*)")
       .eq("user_id", authData.user.id)
@@ -40,7 +42,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Update last login
-    await supabase.from("audit_logs").insert({
+    await adminClient.from("audit_logs").insert({
       broker_id: brokerUser.broker_id,
       user_id: authData.user.id,
       user_type: "broker",

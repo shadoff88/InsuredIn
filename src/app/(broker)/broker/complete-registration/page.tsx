@@ -56,6 +56,17 @@ export default function CompleteRegistrationPage() {
       if (name) {
         setValue("fullName", name);
       }
+
+      // Check if user already has a broker account - if so, redirect to dashboard
+      const { data: brokerUser } = await supabase
+        .from("broker_users")
+        .select("id")
+        .eq("user_id", user.id)
+        .single();
+
+      if (brokerUser) {
+        router.push("/broker/dashboard");
+      }
     };
 
     checkUser();
@@ -79,8 +90,11 @@ export default function CompleteRegistrationPage() {
         return;
       }
 
-      router.push("/broker/dashboard");
-      router.refresh();
+      // Handle both new registration and already registered cases
+      if (result.success) {
+        router.push("/broker/dashboard");
+        router.refresh();
+      }
     } catch {
       setError("An unexpected error occurred");
     } finally {

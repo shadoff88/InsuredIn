@@ -13,6 +13,15 @@ export async function updateSession(request: NextRequest) {
     process.env.SUPABASE_ANON_KEY ||
     process.env.SUPABASE_PUBLISHABLE_KEY!;
 
+  // Debug: Log what key we're using
+  const keyPrefix = supabaseAnonKey?.substring(0, 15) || "MISSING";
+  console.log(`Middleware: path=${request.nextUrl.pathname}, key=${keyPrefix}...`);
+
+  // Debug: Log cookies present
+  const allCookies = request.cookies.getAll();
+  const authCookies = allCookies.filter(c => c.name.includes('auth') || c.name.includes('sb-'));
+  console.log(`Middleware: Found ${authCookies.length} auth cookies: ${authCookies.map(c => c.name).join(', ')}`);
+
   const supabase = createServerClient(
     supabaseUrl,
     supabaseAnonKey,
@@ -86,7 +95,11 @@ export async function updateSession(request: NextRequest) {
   // Get user and refresh session
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser();
+
+  // Debug: Log user status
+  console.log(`Middleware: getUser result - user=${user?.id || 'null'}, error=${userError?.message || 'none'}`);
 
   // Protected routes
   const isAuthRoute =

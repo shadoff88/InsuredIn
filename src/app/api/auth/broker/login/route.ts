@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loginSchema } from "@/lib/validations/auth";
 import { ZodError } from "zod";
@@ -9,13 +9,35 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const validated = loginSchema.parse(body);
 
-    const supabase = await createClient();
+    // Track cookies that need to be set in the response
+    const cookiesToSet: { name: string; value: string; options: object }[] = [];
+
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const supabaseAnonKey =
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_API ||
+      process.env.SUPABASE_ANON_KEY ||
+      process.env.SUPABASE_PUBLISHABLE_KEY!;
+
+    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookies) {
+          cookies.forEach((cookie) => {
+            cookiesToSet.push(cookie);
+          });
+        },
+      },
+    });
 
     // Sign in with Supabase Auth
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email: validated.email,
-      password: validated.password,
-    });
+    const { data: authData, error: authError } =
+      await supabase.auth.signInWithPassword({
+        email: validated.email,
+        password: validated.password,
+      });
 
     if (authError) {
       return NextResponse.json(
@@ -51,7 +73,8 @@ export async function POST(request: NextRequest) {
       entity_id: brokerUser.id,
     });
 
-    return NextResponse.json({
+    // Create response with success data
+    const response = NextResponse.json({
       success: true,
       user: {
         id: authData.user.id,
@@ -64,6 +87,13 @@ export async function POST(request: NextRequest) {
         companyName: brokerUser.brokers.company_name,
       },
     });
+
+    // Set all cookies from the auth session on the response
+    cookiesToSet.forEach(({ name, value, options }) => {
+      response.cookies.set(name, value, options as object);
+    });
+
+    return response;
   } catch (error) {
     if (error instanceof ZodError) {
       return NextResponse.json(

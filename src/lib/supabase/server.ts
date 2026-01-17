@@ -10,6 +10,13 @@ export async function createClient() {
     process.env.SUPABASE_ANON_KEY ||
     process.env.SUPABASE_PUBLISHABLE_KEY!;
 
+  const allCookies = cookieStore.getAll();
+  const authCookies = allCookies.filter(c => c.name.includes('sb-') || c.name.includes('auth'));
+  console.log('[createClient] Server cookies:', {
+    total: allCookies.length,
+    authCookies: authCookies.map(c => ({ name: c.name, hasValue: !!c.value })),
+  });
+
   return createServerClient(
     supabaseUrl,
     supabaseAnonKey,

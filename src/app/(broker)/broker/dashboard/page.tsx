@@ -5,11 +5,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 
 export default async function BrokerDashboardPage() {
+  console.log('[Dashboard] Loading broker dashboard...');
   const brokerUser = await getBrokerUser();
+  console.log('[Dashboard] getBrokerUser result:', {
+    found: !!brokerUser,
+    brokerUserId: brokerUser?.id,
+    willRedirect: !brokerUser,
+  });
 
   if (!brokerUser) {
+    console.log('[Dashboard] No broker user, redirecting to /broker/login');
     redirect("/broker/login");
   }
+
+  console.log('[Dashboard] Broker user found, rendering dashboard');
 
   return (
     <div className="min-h-screen bg-gray-50">

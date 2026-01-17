@@ -75,15 +75,43 @@ export async function getUser() {
 
 export async function getBrokerUser() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user }, error: userError } = await supabase.auth.getUser();
 
-  if (!user) return null;
+  console.log('[getBrokerUser] Auth user check:', {
+    userId: user?.id,
+    userEmail: user?.email,
+    userError: userError?.message,
+  });
 
-  const { data: brokerUser } = await supabase
+  if (!user) {
+    console.log('[getBrokerUser] No auth user found, returning null');
+    return null;
+  }
+
+  const { data: brokerUser, error: brokerError } = await supabase
     .from("broker_users")
     .select("*, brokers(*)")
     .eq("user_id", user.id)
     .single();
+
+  console.log('[getBrokerUser] Broker user query result:', {
+    found: !!brokerUser,
+    brokerUserId: brokerUser?.id,
+    brokerId: brokerUser?.broker_id,
+    error: brokerError?.message,
+    errorCode: brokerError?.code,
+    errorDetails: brokerError?.details,
+    errorHint: brokerError?.hint,
+  });
+
+  if (brokerError) {
+    console.error('[getBrokerUser] Error fetching broker user:', {
+      message: brokerError.message,
+      code: brokerError.code,
+      details: brokerError.details,
+      hint: brokerError.hint,
+    });
+  }
 
   return brokerUser;
 }

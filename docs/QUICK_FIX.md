@@ -10,13 +10,16 @@
 4. Click **New query**
 5. Paste this SQL (runs both migrations):
 ```sql
--- Step 1: Add policy to allow users to read their own record
-CREATE POLICY IF NOT EXISTS "broker_users_read_own_record" ON broker_users
+-- Drop the problematic policy that causes infinite recursion
+DROP POLICY IF EXISTS "broker_users_read_own_staff" ON broker_users;
+
+-- Drop and recreate the correct policy (in case it exists with issues)
+DROP POLICY IF EXISTS "broker_users_read_own_record" ON broker_users;
+
+-- Create the policy that allows users to read their own record by user_id
+CREATE POLICY "broker_users_read_own_record" ON broker_users
   FOR SELECT
   USING (user_id = auth.uid());
-
--- Step 2: Drop the problematic policy that causes infinite recursion
-DROP POLICY IF EXISTS "broker_users_read_own_staff" ON broker_users;
 ```
 6. Click **Run** ✅
 

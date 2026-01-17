@@ -10,16 +10,27 @@
 4. Click **New query**
 5. Paste this SQL:
 ```sql
--- Drop ALL policies that cause infinite recursion
+-- Fix broker_users table policies
 DROP POLICY IF EXISTS "broker_users_read_own_staff" ON broker_users;
 DROP POLICY IF EXISTS "broker_admins_manage_staff" ON broker_users;
 DROP POLICY IF EXISTS "broker_users_read_own_record" ON broker_users;
 
--- Create the policy that allows users to read their own record by user_id
--- This breaks the circular dependency and allows authentication to work
 CREATE POLICY "broker_users_read_own_record" ON broker_users
   FOR SELECT
   USING (user_id = auth.uid());
+
+-- Fix brokers table policy (also causes circular dependency)
+DROP POLICY IF EXISTS "broker_users_read_own_broker" ON brokers;
+
+CREATE POLICY "broker_users_read_own_broker" ON brokers
+  FOR SELECT
+  USING (
+    id IN (
+      SELECT broker_id
+      FROM broker_users
+      WHERE user_id = auth.uid()
+    )
+  );
 ```
 6. Click **Run** ✅
 

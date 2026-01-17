@@ -1,6 +1,6 @@
 # Quick Fix - Apply Migration Immediately
 
-Since I can't access your Vercel environment variables directly, here are **3 simple ways** to apply the fix:
+**UPDATED:** This fix now includes resolving the infinite recursion issue.
 
 ## Option 1: Supabase Dashboard (Easiest - 30 seconds)
 
@@ -8,11 +8,15 @@ Since I can't access your Vercel environment variables directly, here are **3 si
 2. Click your project
 3. Click **SQL Editor** (left sidebar)
 4. Click **New query**
-5. Paste this:
+5. Paste this SQL (runs both migrations):
 ```sql
+-- Step 1: Add policy to allow users to read their own record
 CREATE POLICY IF NOT EXISTS "broker_users_read_own_record" ON broker_users
   FOR SELECT
   USING (user_id = auth.uid());
+
+-- Step 2: Drop the problematic policy that causes infinite recursion
+DROP POLICY IF EXISTS "broker_users_read_own_staff" ON broker_users;
 ```
 6. Click **Run** ✅
 

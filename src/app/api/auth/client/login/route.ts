@@ -97,7 +97,9 @@ export async function POST(request: NextRequest) {
     });
 
     // Set all cookies from the auth session on the response
+    console.log(`Login: Setting ${cookiesToSet.length} cookies`);
     cookiesToSet.forEach(({ name, value, options }) => {
+      console.log(`Login: Setting cookie ${name}, options:`, JSON.stringify(options));
       response.cookies.set(name, value, options as object);
     });
 

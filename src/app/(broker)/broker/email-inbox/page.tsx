@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ManualUploadDialog } from "@/components/broker/manual-upload-dialog";
 
 interface EmailTransaction {
   id: string;
@@ -123,11 +124,14 @@ export default function BrokerEmailInboxPage() {
               <h1 className="text-xl font-semibold text-gray-900">Email Inbox</h1>
               <p className="text-sm text-gray-500">Review AI-extracted documents</p>
             </div>
-            <Link href="/broker/dashboard">
-              <Button variant="outline" size="sm">
-                Back to Dashboard
-              </Button>
-            </Link>
+            <div className="flex items-center gap-2">
+              <ManualUploadDialog onUploadComplete={fetchTransactions} />
+              <Link href="/broker/dashboard">
+                <Button variant="outline" size="sm">
+                  Back to Dashboard
+                </Button>
+              </Link>
+            </div>
           </div>
         </div>
       </header>

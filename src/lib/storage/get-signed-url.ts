@@ -1,6 +1,6 @@
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { r2Client, R2_BUCKET_NAME } from './r2-client';
+import { getR2Client, R2_BUCKET_NAME } from './r2-client';
 import type { SignedUrlOptions } from '../types/storage';
 
 export async function getDocumentSignedUrl(options: SignedUrlOptions): Promise<string> {
@@ -14,7 +14,8 @@ export async function getDocumentSignedUrl(options: SignedUrlOptions): Promise<s
     }),
   });
 
-  const signedUrl = await getSignedUrl(r2Client, command, { expiresIn });
+  const client = getR2Client();
+  const signedUrl = await getSignedUrl(client, command, { expiresIn });
 
   return signedUrl;
 }

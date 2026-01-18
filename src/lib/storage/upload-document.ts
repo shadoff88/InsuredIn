@@ -1,5 +1,5 @@
 import { PutObjectCommand } from '@aws-sdk/client-s3';
-import { r2Client, R2_BUCKET_NAME } from './r2-client';
+import { getR2Client, R2_BUCKET_NAME } from './r2-client';
 import { randomUUID } from 'crypto';
 import type { UploadOptions, UploadResult } from '../types/storage';
 
@@ -23,7 +23,8 @@ export async function uploadDocument(options: UploadOptions): Promise<UploadResu
     },
   });
 
-  await r2Client.send(command);
+  const client = getR2Client();
+  await client.send(command);
 
   return {
     storageKey,

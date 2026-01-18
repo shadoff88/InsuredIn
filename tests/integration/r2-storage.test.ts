@@ -1,7 +1,16 @@
 import { describe, it, expect, afterAll } from '@jest/globals';
 import { uploadDocument, getDocumentSignedUrl, deleteDocument } from '@/lib/storage';
 
-describe('R2 Storage Integration', () => {
+// Check if R2 credentials are configured
+const hasR2Config = !!(
+  process.env.CLOUDFLARE_ACCOUNT_ID &&
+  process.env.CLOUDFLARE_R2_ACCESS_KEY_ID &&
+  process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY
+);
+
+const describeR2 = hasR2Config ? describe : describe.skip;
+
+describeR2('R2 Storage Integration', () => {
   const testKeys: string[] = [];
 
   afterAll(async () => {

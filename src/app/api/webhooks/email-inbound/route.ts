@@ -1,64 +1,112 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { parseEmail, extractBrokerIdFromEmail, filterPdfAttachments } from "@/lib/email/parse-email";
+import { parseEmail, extractBrokerUidFromEmail, filterPdfAttachments } from "@/lib/email/parse-email";
 import { uploadDocument } from "@/lib/storage";
+import { verifyWebhookSignature } from "@/lib/webhooks/verify-signature";
 
 /**
- * Webhook endpoint for Cloudflare Email Routing
- * Receives forwarded emails and processes them
+ * Webhook endpoint for Cloudflare Email Worker
+ * Receives forwarded emails from Cloudflare and processes them
+ *
+ * Security:
+ * - HMAC-SHA256 signature verification
+ * - Timestamp validation (±5 minutes)
+ * - Broker UID validation
+ *
+ * @see docs/sprint1/EMAIL_WEBHOOK_SECURITY.md
  */
 export async function POST(request: NextRequest) {
   try {
-    // Read raw email content
-    const rawEmail = await request.text();
+    // Extract headers
+    const signature = request.headers.get('X-Webhook-Signature');
+    const timestamp = request.headers.get('X-Webhook-Timestamp');
 
-    if (!rawEmail) {
+    // Validate required headers
+    if (!signature || !timestamp) {
+      console.warn('Missing webhook headers', {
+        hasSignature: !!signature,
+        hasTimestamp: !!timestamp,
+      });
+      return NextResponse.json(
+        { error: "Missing required headers" },
+        { status: 400 }
+      );
+    }
+
+    // Read raw email as ArrayBuffer for signature verification
+    const bodyArrayBuffer = await request.arrayBuffer();
+
+    if (bodyArrayBuffer.byteLength === 0) {
       return NextResponse.json({ error: "No email content" }, { status: 400 });
     }
+
+    // Verify webhook signature
+    const webhookSecret = process.env.WEBHOOK_SECRET;
+
+    if (!webhookSecret) {
+      console.error('WEBHOOK_SECRET environment variable not configured');
+      return NextResponse.json(
+        { error: "Server configuration error" },
+        { status: 500 }
+      );
+    }
+
+    const isValidSignature = await verifyWebhookSignature({
+      signature,
+      timestamp,
+      body: bodyArrayBuffer,
+      secret: webhookSecret,
+    });
+
+    if (!isValidSignature) {
+      console.warn('Invalid webhook signature', {
+        timestamp,
+        signaturePrefix: signature.substring(0, 8),
+      });
+      return NextResponse.json(
+        { error: "Invalid signature" },
+        { status: 401 }
+      );
+    }
+
+    // Convert ArrayBuffer to string for email parsing
+    const rawEmail = new TextDecoder().decode(bodyArrayBuffer);
 
     // Parse email
     const parsed = await parseEmail(rawEmail);
     console.log(`Processing email from ${parsed.from}, subject: ${parsed.subject}`);
 
-    // Extract broker ID from destination email
+    // Extract broker UID from destination email
     const toEmail = parsed.to[0] || '';
-    const brokerIdentifier = extractBrokerIdFromEmail(toEmail);
+    const brokerUid = extractBrokerUidFromEmail(toEmail);
 
-    if (!brokerIdentifier) {
-      console.error(`Could not extract broker from email: ${toEmail}`);
+    if (!brokerUid) {
+      console.error(`Could not extract broker UID from email: ${toEmail}`);
       return NextResponse.json(
-        { error: "Invalid destination email" },
+        { error: "Invalid destination email format" },
         { status: 400 }
       );
     }
 
-    // Create Supabase client (admin mode for webhook)
+    // Create Supabase client (service role for webhook)
     const supabase = await createClient();
 
-    // Look up broker by ID or subdomain
-    let brokerId: string;
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(brokerIdentifier);
+    // Verify broker exists
+    const { data: broker, error: brokerError } = await supabase
+      .from("brokers")
+      .select("id")
+      .eq("id", brokerUid)
+      .single();
 
-    if (isUuid) {
-      brokerId = brokerIdentifier;
-    } else {
-      // Look up by subdomain
-      const { data: branding } = await supabase
-        .from("broker_branding")
-        .select("broker_id")
-        .eq("subdomain", brokerIdentifier)
-        .single();
-
-      if (!branding) {
-        console.error(`Broker not found for subdomain: ${brokerIdentifier}`);
-        return NextResponse.json(
-          { error: "Broker not found" },
-          { status: 404 }
-        );
-      }
-
-      brokerId = branding.broker_id;
+    if (brokerError || !broker) {
+      console.error(`Broker not found: ${brokerUid}`);
+      return NextResponse.json(
+        { error: "Broker not found" },
+        { status: 404 }
+      );
     }
+
+    const brokerId = brokerUid;
 
     // Get or create email inbox
     let { data: inbox } = await supabase
@@ -185,11 +233,16 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Health check endpoint
+/**
+ * Health check endpoint
+ * Returns webhook status and timestamp
+ */
 export async function GET() {
   return NextResponse.json({
     status: "ok",
     service: "email-inbound-webhook",
+    version: "2.0",
+    security: "HMAC-SHA256 enabled",
     timestamp: new Date().toISOString(),
   });
 }

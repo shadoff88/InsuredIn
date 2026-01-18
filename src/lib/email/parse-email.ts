@@ -80,6 +80,47 @@ export function extractBrokerIdFromEmail(toEmail: string): string | null {
 }
 
 /**
+ * Extract broker UID from destination email address (NEW FORMAT)
+ * Format: {broker_uid}@{brokerage_name}.insuredin.app
+ *
+ * @example
+ * extractBrokerUidFromEmail('broker-abc123@smithinsurance.insuredin.app')
+ * // Returns: 'broker-abc123'
+ *
+ * @param toEmail - Destination email address
+ * @returns Broker UID (UUID format) or null if invalid format
+ */
+export function extractBrokerUidFromEmail(toEmail: string): string | null {
+  // Pattern: {broker_uid}@{subdomain}.insuredin.app
+  // broker_uid should be a valid UUID format
+  const match = toEmail.match(/^([a-f0-9-]+)@([a-z0-9-]+)\.insuredin\.app$/i);
+
+  if (!match) {
+    return null;
+  }
+
+  const brokerUid = match[1];
+
+  // Validate UUID format (loose validation)
+  // UUID pattern: 8-4-4-4-12 hex characters with dashes
+  const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
+
+  if (uuidPattern.test(brokerUid)) {
+    return brokerUid;
+  }
+
+  // Also accept "broker-{uuid}" format for backwards compatibility
+  const brokerPrefixPattern = /^broker-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i;
+  const brokerPrefixMatch = brokerUid.match(brokerPrefixPattern);
+
+  if (brokerPrefixMatch) {
+    return brokerPrefixMatch[1]; // Return UUID without "broker-" prefix
+  }
+
+  return null;
+}
+
+/**
  * Validate that email contains PDF attachments
  * @param attachments - List of email attachments
  * @returns True if at least one PDF found

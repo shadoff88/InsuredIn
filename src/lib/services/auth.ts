@@ -88,7 +88,12 @@ export async function getBrokerUser() {
     return null;
   }
 
-  const { data: brokerUser, error: brokerError } = await supabase
+  // Use admin client to bypass RLS since we've already verified auth
+  // This works around the issue where auth cookies aren't being sent on server requests
+  const { createAdminClient } = await import("@/lib/supabase/admin");
+  const adminClient = createAdminClient();
+
+  const { data: brokerUser, error: brokerError } = await adminClient
     .from("broker_users")
     .select("*, brokers(*)")
     .eq("user_id", user.id)

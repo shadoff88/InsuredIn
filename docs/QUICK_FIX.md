@@ -8,15 +8,29 @@
 2. Click your project
 3. Click **SQL Editor** (left sidebar)
 4. Click **New query**
-5. Paste this SQL (runs both migrations):
+5. Paste this SQL:
 ```sql
--- Step 1: Add policy to allow users to read their own record
-CREATE POLICY IF NOT EXISTS "broker_users_read_own_record" ON broker_users
+-- Fix broker_users table policies
+DROP POLICY IF EXISTS "broker_users_read_own_staff" ON broker_users;
+DROP POLICY IF EXISTS "broker_admins_manage_staff" ON broker_users;
+DROP POLICY IF EXISTS "broker_users_read_own_record" ON broker_users;
+
+CREATE POLICY "broker_users_read_own_record" ON broker_users
   FOR SELECT
   USING (user_id = auth.uid());
 
--- Step 2: Drop the problematic policy that causes infinite recursion
-DROP POLICY IF EXISTS "broker_users_read_own_staff" ON broker_users;
+-- Fix brokers table policy (also causes circular dependency)
+DROP POLICY IF EXISTS "broker_users_read_own_broker" ON brokers;
+
+CREATE POLICY "broker_users_read_own_broker" ON brokers
+  FOR SELECT
+  USING (
+    id IN (
+      SELECT broker_id
+      FROM broker_users
+      WHERE user_id = auth.uid()
+    )
+  );
 ```
 6. Click **Run** ✅
 

@@ -104,62 +104,64 @@ Timestamp > 5 minutes old → 401 Unauthorized → Log warning
 
 ---
 
-### 2. Broker UID Extraction
+### 2. Broker Subdomain Extraction
 
-#### Test Case 2.1: Valid Broker UID (UUID format)
+#### Test Case 2.1: Valid Subdomain Header
 **Status:** ✅ CODE REVIEW PASSED
 
-**Input:**
+**Input Headers:**
 ```
-abc12345-1234-5678-9abc-123456789012@smithinsurance.insuredin.app
+X-Broker-Subdomain: smithinsurance
+X-Recipient-Email: documents@smithinsurance.insuredin.app
+X-Sender-Email: client@example.com
 ```
 
 **Expected Output:**
 ```
-abc12345-1234-5678-9abc-123456789012
+Broker lookup in broker_branding table via subdomain
+Returns broker_id for matching subdomain
 ```
 
 **Implementation:**
-- `extractBrokerUidFromEmail()` function in parse-email.ts
-- Regex pattern validates UUID format
-- Returns broker UID for database lookup
+- Reads `X-Broker-Subdomain` header from Cloudflare Worker
+- Queries `broker_branding.subdomain` column
+- Returns broker_id for valid subdomain
 
-#### Test Case 2.2: Legacy Format (broker- prefix)
+#### Test Case 2.2: Missing Subdomain Header
 **Status:** ✅ CODE REVIEW PASSED
 
 **Input:**
 ```
-broker-abc12345-1234-5678-9abc-123456789012@smithinsurance.insuredin.app
+Missing X-Broker-Subdomain header
 ```
 
 **Expected Output:**
 ```
-abc12345-1234-5678-9abc-123456789012
+400 Bad Request - Missing broker information
 ```
 
 **Implementation:**
-- Backwards compatibility maintained
-- Strips "broker-" prefix
-- Returns clean UUID
+- Validates all required headers present
+- Returns 400 with clear error message
+- Logs missing header warning
 
-#### Test Case 2.3: Invalid Format
+#### Test Case 2.3: Invalid Subdomain
 **Status:** ✅ CODE REVIEW PASSED
 
 **Input:**
 ```
-invalid-email@insuredin.app
-not-a-uuid@broker.insuredin.app
+X-Broker-Subdomain: nonexistent-broker
 ```
 
 **Expected Output:**
 ```
-null
+404 Not Found - Broker not found
 ```
 
 **Implementation:**
-- Returns null for invalid formats
-- Webhook returns 400 Bad Request
-- Logs error with invalid email
+- Queries broker_branding table
+- Returns 404 for non-existent subdomain
+- Logs security event with subdomain details
 
 ---
 
@@ -225,21 +227,42 @@ Multiple PDFs → All uploaded to R2 → All attachment records created
 - Returns 500 if missing (configuration error)
 - Does not process emails without secret
 
-#### Test Case 4.2: Broker Validation
+#### Test Case 4.2: Broker Validation (Subdomain-Based)
 **Status:** ✅ CODE REVIEW PASSED
 
 **Implementation:**
-- Queries `brokers` table to verify broker exists
-- Returns 404 if broker not found
-- Prevents processing for invalid brokers
+- Queries `broker_branding` table to verify subdomain exists
+- Returns 404 if subdomain not found
+- Prevents processing for invalid subdomains
+- Logs security event with subdomain, sender, and timestamp
 
-#### Test Case 4.3: No Secret Exposure
+#### Test Case 4.3: Rate Limiting
+**Status:** ✅ CODE REVIEW PASSED
+
+**Implementation:**
+- Checks email count per broker in last hour
+- Limit: 100 emails/hour per broker
+- Returns 429 Too Many Requests if exceeded
+- Logs rate limit event with email count
+- Fails open on database error (allows email)
+
+#### Test Case 4.4: Timestamp Validation
+**Status:** ✅ CODE REVIEW PASSED
+
+**Implementation:**
+- Validates timestamp within ±5 minute window
+- Prevents replay attacks
+- Returns 401 for expired timestamps
+- Logs timestamp difference and IP address
+
+#### Test Case 4.5: No Secret Exposure
 **Status:** ✅ CODE REVIEW PASSED
 
 **Implementation:**
 - Secrets not logged
 - Error messages do not include secrets
 - Signature only logged as prefix (first 8 chars)
+- IP address logged for security auditing
 
 ---
 
@@ -326,8 +349,9 @@ No files selected → 400 Bad Request → Error message shown
 
 1. **Unit Tests**
    - Add unit tests for `verify-signature.ts`
-   - Add unit tests for `extractBrokerUidFromEmail()`
-   - Test edge cases (malformed emails, invalid timestamps)
+   - Add unit tests for subdomain header extraction
+   - Add unit tests for rate limiting logic
+   - Test edge cases (malformed headers, invalid timestamps)
 
 2. **Integration Tests**
    - End-to-end test for email processing flow
@@ -346,7 +370,9 @@ No files selected → 400 Bad Request → Error message shown
 | Component | Code Review | Unit Tests | Integration Tests | Manual Tests |
 |-----------|-------------|------------|-------------------|--------------|
 | Webhook Signature | ✅ PASS | ⚠️ TODO | ⚠️ TODO | ⚠️ PENDING |
-| Broker UID Extraction | ✅ PASS | ⚠️ TODO | ⚠️ TODO | ⚠️ PENDING |
+| Subdomain Extraction | ✅ PASS | ⚠️ TODO | ⚠️ TODO | ⚠️ PENDING |
+| Timestamp Validation | ✅ PASS | ⚠️ TODO | ⚠️ TODO | ⚠️ PENDING |
+| Rate Limiting | ✅ PASS | ⚠️ TODO | ⚠️ TODO | ⚠️ PENDING |
 | Email Parsing | ✅ PASS | ✅ PASS | ⚠️ TODO | ⚠️ PENDING |
 | R2 Upload | ✅ PASS | ✅ SKIP | ⚠️ TODO | ⚠️ PENDING |
 | Manual Upload | ✅ PASS | ⚠️ TODO | ⚠️ TODO | ⚠️ PENDING |

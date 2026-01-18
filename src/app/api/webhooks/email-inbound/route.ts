@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { parseEmail, extractBrokerUidFromEmail, filterPdfAttachments } from "@/lib/email/parse-email";
+import { parseEmail, filterPdfAttachments } from "@/lib/email/parse-email";
 import { uploadDocument } from "@/lib/storage";
 import { verifyWebhookSignature } from "@/lib/webhooks/verify-signature";
 
@@ -11,25 +11,25 @@ import { verifyWebhookSignature } from "@/lib/webhooks/verify-signature";
  * Security:
  * - HMAC-SHA256 signature verification
  * - Timestamp validation (±5 minutes)
- * - Broker UID validation
+ * - Subdomain-based broker validation
+ * - Rate limiting (100 emails/hour per broker)
  *
  * @see docs/sprint1/EMAIL_WEBHOOK_SECURITY.md
  */
 export async function POST(request: NextRequest) {
   try {
-    // Extract headers
-    const signature = request.headers.get('X-Webhook-Signature');
-    const timestamp = request.headers.get('X-Webhook-Timestamp');
+    // 1. SECURITY: Extract and validate authentication headers
+    const signature = request.headers.get('x-webhook-signature');
+    const timestamp = request.headers.get('x-webhook-timestamp');
 
-    // Validate required headers
     if (!signature || !timestamp) {
-      console.warn('Missing webhook headers', {
+      console.warn('SECURITY: Missing authentication headers', {
         hasSignature: !!signature,
         hasTimestamp: !!timestamp,
       });
       return NextResponse.json(
-        { error: "Missing required headers" },
-        { status: 400 }
+        { error: "Missing authentication headers" },
+        { status: 401 }
       );
     }
 
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No email content" }, { status: 400 });
     }
 
-    // Verify webhook signature
+    // Verify webhook secret is configured
     const webhookSecret = process.env.WEBHOOK_SECRET;
 
     if (!webhookSecret) {
@@ -51,6 +51,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 2. SECURITY: Verify HMAC signature
     const isValidSignature = await verifyWebhookSignature({
       signature,
       timestamp,
@@ -59,13 +60,100 @@ export async function POST(request: NextRequest) {
     });
 
     if (!isValidSignature) {
-      console.warn('Invalid webhook signature', {
+      console.error('SECURITY: Invalid webhook signature', {
         timestamp,
         signaturePrefix: signature.substring(0, 8),
+        ipAddress: request.headers.get('x-forwarded-for'),
       });
       return NextResponse.json(
         { error: "Invalid signature" },
         { status: 401 }
+      );
+    }
+
+    // 3. SECURITY: Validate timestamp (prevent replay attacks)
+    const requestTime = parseInt(timestamp);
+    const currentTime = Date.now();
+    const timeDiff = Math.abs(currentTime - requestTime);
+
+    // Reject requests older than 5 minutes
+    if (timeDiff > 5 * 60 * 1000) {
+      console.error('SECURITY: Request timestamp too old', {
+        timeDiff,
+        timestamp,
+        ipAddress: request.headers.get('x-forwarded-for'),
+      });
+      return NextResponse.json(
+        { error: "Request expired" },
+        { status: 401 }
+      );
+    }
+
+    // 4. SECURITY: Extract and validate broker subdomain
+    const brokerSubdomain = request.headers.get('x-broker-subdomain');
+    const recipientEmail = request.headers.get('x-recipient-email');
+    const senderEmail = request.headers.get('x-sender-email');
+
+    if (!brokerSubdomain || !recipientEmail) {
+      console.warn('Missing broker information headers', {
+        hasBrokerSubdomain: !!brokerSubdomain,
+        hasRecipientEmail: !!recipientEmail,
+      });
+      return NextResponse.json(
+        { error: "Missing broker information" },
+        { status: 400 }
+      );
+    }
+
+    // Create Supabase client (service role for webhook)
+    const supabase = await createClient();
+
+    // Validate broker exists via subdomain lookup
+    const { data: brokerBranding, error: brokerError } = await supabase
+      .from("broker_branding")
+      .select("broker_id, subdomain")
+      .eq("subdomain", brokerSubdomain)
+      .single();
+
+    if (brokerError || !brokerBranding) {
+      console.error('SECURITY: Email to non-existent subdomain', {
+        subdomain: brokerSubdomain,
+        senderEmail,
+        recipientEmail,
+        timestamp: new Date().toISOString(),
+      });
+      return NextResponse.json(
+        { error: "Broker not found" },
+        { status: 404 }
+      );
+    }
+
+    const brokerId = brokerBranding.broker_id;
+
+    // 5. SECURITY: Rate limiting (100 emails per broker per hour)
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+    const { count, error: countError } = await supabase
+      .from("email_processing_transactions")
+      .select("id", { count: "exact", head: true })
+      .eq("broker_id", brokerId)
+      .gte("received_at", oneHourAgo);
+
+    if (countError) {
+      console.error('Rate limit check error:', countError);
+      // Fail open (allow request) to avoid blocking legitimate emails
+    }
+
+    if ((count || 0) >= 100) {
+      console.error('SECURITY: Rate limit exceeded', {
+        broker_id: brokerId,
+        subdomain: brokerSubdomain,
+        emailCount: count,
+        senderEmail,
+      });
+      return NextResponse.json(
+        { error: "Rate limit exceeded" },
+        { status: 429 }
       );
     }
 
@@ -76,37 +164,7 @@ export async function POST(request: NextRequest) {
     const parsed = await parseEmail(rawEmail);
     console.log(`Processing email from ${parsed.from}, subject: ${parsed.subject}`);
 
-    // Extract broker UID from destination email
-    const toEmail = parsed.to[0] || '';
-    const brokerUid = extractBrokerUidFromEmail(toEmail);
-
-    if (!brokerUid) {
-      console.error(`Could not extract broker UID from email: ${toEmail}`);
-      return NextResponse.json(
-        { error: "Invalid destination email format" },
-        { status: 400 }
-      );
-    }
-
-    // Create Supabase client (service role for webhook)
-    const supabase = await createClient();
-
-    // Verify broker exists
-    const { data: broker, error: brokerError } = await supabase
-      .from("brokers")
-      .select("id")
-      .eq("id", brokerUid)
-      .single();
-
-    if (brokerError || !broker) {
-      console.error(`Broker not found: ${brokerUid}`);
-      return NextResponse.json(
-        { error: "Broker not found" },
-        { status: 404 }
-      );
-    }
-
-    const brokerId = brokerUid;
+    const toEmail = recipientEmail;
 
     // Get or create email inbox
     let { data: inbox } = await supabase
@@ -241,8 +299,8 @@ export async function GET() {
   return NextResponse.json({
     status: "ok",
     service: "email-inbound-webhook",
-    version: "2.0",
-    security: "HMAC-SHA256 enabled",
+    version: "3.0",
+    security: "HMAC-SHA256 + subdomain routing + rate limiting",
     timestamp: new Date().toISOString(),
   });
 }
